@@ -27,6 +27,14 @@
 3. Site configuration → Environment variables: `COARENA_API_KEYS`, при необходимости `COARENA_BASE_URL`, `KEY_STRATEGY`, `ALLOWED_ORIGIN`.
 4. Перевыпустите ключи, которые попали в переписку, и используйте только новые.
 
+## Деплой на Render
+Создайте Blueprint из репозитория с помощью `render.yaml` или настройте сервис вручную как **Web Service**:
+- Runtime: Node
+- Build command: `npm install && npm run build`
+- Start command: `npm run start`
+
+Не создавайте Static Site: приложению нужны серверные API-маршруты. Добавьте `COARENA_API_KEYS` в Environment Variables Render.
+
 ## Допущения (не подтверждены документацией Coarena)
 - Формат тела `POST /feedback`: `{model, rating: 1 | -1}`. Задан в `lib/feedback.config.ts`.
 - Классификация ошибок по HTTP-статусу. Квота определяется по коду 402.
