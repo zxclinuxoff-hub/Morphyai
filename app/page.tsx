@@ -17,6 +17,7 @@ const MODEL_KEY = "coarena.model";
 const COMPARE_KEY = "coarena.compareModel";
 const FAV_KEY = "coarena.favorites";
 const THEME_KEY = "coarena.theme";
+const BACKGROUND_KEY = "coarena.background";
 
 const SUGGESTIONS = [
   "Объясни простыми словами, как работает нейросеть",
@@ -27,6 +28,10 @@ const SUGGESTIONS = [
 
 const uid = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 const titleFrom = (t: string) => t.replace(/\s+/g, " ").trim().slice(0, 50);
+const hasPendingBackground = (chat: Chat | null) =>
+  Boolean(chat?.messages.some((message) =>
+    message.role === "assistant" && message.backgroundTaskId && !message.content && !message.error,
+  ));
 
 // Минимальные типы Web Speech API. Браузеры отдают их под разными именами.
 interface SpeechRec {
@@ -75,6 +80,7 @@ export default function Home() {
   const [compareMode, setCompareMode] = useState(false);
   const [compareModel, setCompareModel] = useState("");
   const [busy, setBusy] = useState(false);
+  const [backgroundBusy, setBackgroundBusy] = useState(false);
   const [ready, setReady] = useState(false);
   const [input, setInput] = useState("");
   const [query, setQuery] = useState("");
@@ -88,8 +94,10 @@ export default function Home() {
   const [dragging, setDragging] = useState(false);
   const [listening, setListening] = useState(false);
   const [voiceOk, setVoiceOk] = useState(false);
+  const [backgroundEnabled, setBackgroundEnabled] = useState(true);
 
   const abortRef = useRef<AbortController | null>(null);
+  const backgroundPollsRef = useRef(new Set<string>());
   const searchRef = useRef<HTMLInputElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -100,6 +108,7 @@ export default function Home() {
   // Начальная загрузка: история, модели, настройки, тема, избранное
   useEffect(() => {
     setSettings(loadSettings());
+    setBackgroundEnabled(localStorage.getItem(BACKGROUND_KEY) !== "false");
     if (localStorage.getItem(THEME_KEY) === "light") setTheme("light");
     try {
       setFavorites(JSON.parse(localStorage.getItem(FAV_KEY) ?? "[]"));
@@ -156,6 +165,17 @@ export default function Home() {
   }, [busy]);
 
   useEffect(() => {
+    if (!ready) return;
+    for (const chat of chats) {
+      for (const message of chat.messages) {
+        if (message.role === "assistant" && message.backgroundTaskId && !message.content && !message.error) {
+          void pollBackgroundTask(chat.id, message.id, message.backgroundTaskId);
+        }
+      }
+    }
+  }, [chats, ready]);
+
+  useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [active?.messages.length]);
 
@@ -179,6 +199,11 @@ export default function Home() {
   function updateSettings(next: Settings) {
     setSettings(next);
     saveSettings(next);
+  }
+
+  function updateBackgroundEnabled(enabled: boolean) {
+    setBackgroundEnabled(enabled);
+    localStorage.setItem(BACKGROUND_KEY, String(enabled));
   }
 
   function toggleFavorite(name: string) {
@@ -224,18 +249,117 @@ export default function Home() {
       }
 
       let acc = "";
+      let lastPaint = 0;
+      let paintTimer: ReturnType<typeof setTimeout> | null = null;
       const hasContent = await readChatStream(res.body, (delta) => {
         acc += delta;
-        setBotMessage(chatId, botId, acc);
+        const now = Date.now();
+        if (now - lastPaint >= 50) {
+          lastPaint = now;
+          setBotMessage(chatId, botId, acc);
+        } else if (!paintTimer) {
+          paintTimer = setTimeout(() => {
+            paintTimer = null;
+            lastPaint = Date.now();
+            setBotMessage(chatId, botId, acc);
+          }, 50 - (now - lastPaint));
+        }
       });
 
-      if (!hasContent) setBotMessage(chatId, botId, "Пустой ответ модели", true);
+      if (paintTimer) clearTimeout(paintTimer);
+      if (hasContent) setBotMessage(chatId, botId, acc);
+      else setBotMessage(chatId, botId, "Пустой ответ модели", true);
     } catch (err) {
       if ((err as Error).name === "AbortError") {
         setStatus("Остановлено");
       } else {
         setBotMessage(chatId, botId, "Соединение прервано", true);
       }
+    }
+  }
+
+  async function pollBackgroundTask(chatId: string, botId: string, taskId: string): Promise<void> {
+    if (backgroundPollsRef.current.has(taskId)) return;
+    backgroundPollsRef.current.add(taskId);
+    const startedAt = Date.now();
+    try {
+      while (true) {
+        let response: Response;
+        try {
+          response = await fetch(`/api/chat/tasks/${taskId}`, { cache: "no-store" });
+        } catch {
+          await new Promise((resolve) => setTimeout(resolve, 2000));
+          continue;
+        }
+
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          if (response.status === 404) {
+            if (Date.now() - startedAt > 20_000) {
+              setBotMessage(chatId, botId, data.error ?? "Фоновая задача больше недоступна", true);
+              return;
+            }
+            await new Promise((resolve) => setTimeout(resolve, 3000));
+            continue;
+          }
+          setBotMessage(chatId, botId, data.error ?? "Не удалось получить фоновый ответ", true);
+          return;
+        }
+        if (data.status === "completed") {
+          setBotMessage(chatId, botId, data.content);
+          return;
+        }
+        if (data.status === "failed") {
+          setBotMessage(chatId, botId, data.error ?? "Фоновый запрос завершился с ошибкой", true);
+          return;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+      }
+    } finally {
+      backgroundPollsRef.current.delete(taskId);
+    }
+  }
+
+  async function runBackgroundTurn(
+    chatId: string,
+    history: StoredMessage[],
+    bots: StoredMessage[],
+  ): Promise<void> {
+    setBusy(true);
+    setBackgroundBusy(true);
+    setStatus("Ответы выполняются на сервере и продолжатся, если закрыть вкладку");
+    try {
+      await Promise.all(
+        bots.map(async (bot) => {
+          const taskId = bot.backgroundTaskId;
+          if (!taskId) return;
+          try {
+            const response = await fetch("/api/chat/tasks", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                task_id: taskId,
+                model: bot.model ?? model,
+                messages: toApiMessages(history, settings.systemPrompt),
+                temperature: settings.temperature,
+                max_tokens: settings.maxTokens,
+              }),
+            });
+            if (!response.ok) {
+              const data = await response.json().catch(() => ({}));
+              setBotMessage(chatId, bot.id, data.error ?? "Не удалось запустить фоновый запрос", true);
+              return;
+            }
+            await pollBackgroundTask(chatId, bot.id, taskId);
+          } catch {
+            setBotMessage(chatId, bot.id, "Не удалось подключиться к фоновой задаче", true);
+          }
+        }),
+      );
+    } finally {
+      setBusy(false);
+      setBackgroundBusy(false);
+      setStatus("");
     }
   }
 
@@ -255,7 +379,7 @@ export default function Home() {
 
   async function send() {
     const text = input.trim();
-    if ((!text && pending.length === 0) || busy || !model || !active) return;
+    if ((!text && pending.length === 0) || busy || !model || !active || hasPendingBackground(active)) return;
 
     const textFiles = pending.filter((a): a is Extract<Attachment, { kind: "text" }> => a.kind === "text");
     const images = pending.filter((a): a is Extract<Attachment, { kind: "image" }> => a.kind === "image");
@@ -272,25 +396,33 @@ export default function Home() {
     };
 
     const targets = compareMode && compareModel && compareModel !== model ? [model, compareModel] : [model];
-    const bots: StoredMessage[] = targets.map((m) => ({ id: uid(), role: "assistant", content: "", model: m }));
+    const bots: StoredMessage[] = targets.map((m) => ({
+      id: uid(),
+      role: "assistant",
+      content: "",
+      model: m,
+      backgroundTaskId: backgroundEnabled ? crypto.randomUUID() : undefined,
+    }));
     const chatId = active.id;
     const history = [...active.messages, userMsg];
-
-    patchChat(chatId, (c) => ({
-      ...c,
+    const updatedChat: Chat = {
+      ...active,
       model,
-      title: c.messages.length === 0 ? titleFrom(text || userMsg.files?.[0] || "Чат") || c.title : c.title,
+      title: active.messages.length === 0 ? titleFrom(text || userMsg.files?.[0] || "Чат") || active.title : active.title,
       updatedAt: Date.now(),
       messages: [...history, ...bots],
-    }));
+    };
+    setChats((prev) => prev.map((c) => (c.id === chatId ? updatedChat : c)));
     setInput("");
     setPending([]);
-    await runTurn(chatId, history, bots);
+    await saveChat(updatedChat);
+    if (backgroundEnabled) await runBackgroundTurn(chatId, history, bots);
+    else await runTurn(chatId, history, bots);
   }
 
   // Повтор последнего хода: перегенерирует все ответы последнего запроса.
   async function regenerate() {
-    if (!active || busy) return;
+    if (!active || busy || hasPendingBackground(active)) return;
     const msgs = active.messages;
     let lastUser = msgs.length - 1;
     while (lastUser >= 0 && msgs[lastUser].role !== "user") lastUser--;
@@ -298,9 +430,18 @@ export default function Home() {
     const history = msgs.slice(0, lastUser + 1);
     const bots = msgs.slice(lastUser + 1).filter((m) => m.role === "assistant");
     if (bots.length === 0) return;
-    const reset = bots.map((b) => ({ ...b, content: "", error: false, feedback: undefined }));
-    patchChat(active.id, (c) => ({ ...c, updatedAt: Date.now(), messages: [...history, ...reset] }));
-    await runTurn(active.id, history, reset);
+    const reset = bots.map((b) => ({
+      ...b,
+      content: "",
+      error: false,
+      feedback: undefined,
+      backgroundTaskId: backgroundEnabled ? crypto.randomUUID() : undefined,
+    }));
+    const updatedChat = { ...active, updatedAt: Date.now(), messages: [...history, ...reset] };
+    setChats((prev) => prev.map((c) => (c.id === active.id ? updatedChat : c)));
+    await saveChat(updatedChat);
+    if (backgroundEnabled) await runBackgroundTurn(active.id, history, reset);
+    else await runTurn(active.id, history, reset);
   }
 
   async function onPickFiles(files: FileList | null) {
@@ -480,7 +621,8 @@ export default function Home() {
   let lastUserIdx = msgs.length - 1;
   while (lastUserIdx >= 0 && msgs[lastUserIdx].role !== "user") lastUserIdx--;
   const lastIdx = msgs.length - 1;
-  const canSend = (input.trim().length > 0 || pending.length > 0) && !!model && ready;
+  const canSend =
+    (input.trim().length > 0 || pending.length > 0) && !!model && ready && !hasPendingBackground(active);
 
   return (
     <div className="shell">
@@ -608,13 +750,15 @@ export default function Home() {
             }
 
             const lastTurn = idx > lastUserIdx;
-            const streaming = busy && lastTurn && !m.content;
-            const streamingNow = busy && lastTurn;
+            const backgroundPending = Boolean(m.backgroundTaskId && !m.content && !m.error);
+            const streaming = (busy && lastTurn && !m.content) || backgroundPending;
+            const streamingNow = (busy && lastTurn) || backgroundPending;
             const files = !streamingNow && m.content ? extractFiles(m.content) : [];
             return (
               <div key={m.id} className={`msg assistant ${m.error ? "error" : ""}`}>
                 {m.model && <div className="msg-model">{m.model}</div>}
                 {m.content ? <Markdown content={m.content} /> : streaming ? <TypingDots /> : null}
+                {backgroundPending && <div className="background-status">Продолжаю на сервере — можно закрыть вкладку</div>}
                 {!streamingNow && m.content && (
                   <div className="msg-actions">
                     <button type="button" onClick={() => copyMessage(m)}>
@@ -704,13 +848,23 @@ export default function Home() {
             rows={1}
             disabled={busy || !ready}
           />
+          <label className="background-toggle" title="Задача продолжится на сервере, пока процесс работает">
+            <input
+              type="checkbox"
+              checked={backgroundEnabled}
+              onChange={(e) => updateBackgroundEnabled(e.target.checked)}
+              disabled={busy || !ready}
+            />
+            <span>Продолжать на сервере</span>
+          </label>
           {busy ? (
             <button
               type="button"
               onClick={() => abortRef.current?.abort()}
+              disabled={backgroundBusy}
               style={{ background: "var(--surface-2)", color: "var(--text)" }}
             >
-              Стоп
+              {backgroundBusy ? "В фоне" : "Стоп"}
             </button>
           ) : (
             <button type="submit" disabled={!canSend}>

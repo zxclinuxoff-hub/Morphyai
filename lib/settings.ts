@@ -4,12 +4,12 @@ export interface Settings {
   maxTokens: number;
 }
 
-export const MAX_OUTPUT_TOKENS = 16384;
+export const MAX_OUTPUT_TOKENS = 120000;
 
 export const DEFAULT_SETTINGS: Settings = {
   systemPrompt: "",
   temperature: 0.7,
-  maxTokens: 4096,
+  maxTokens: 50000,
 };
 
 const KEY = "coarena.settings";

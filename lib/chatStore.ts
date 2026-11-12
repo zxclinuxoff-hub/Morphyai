@@ -7,6 +7,7 @@ export interface StoredMessage {
   images?: string[];
   files?: string[];
   model?: string;
+  backgroundTaskId?: string;
 }
 
 export interface Chat {

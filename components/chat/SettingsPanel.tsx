@@ -40,7 +40,7 @@ export function SettingsPanel({ value, onChange, onClose }: Props) {
         </label>
 
         <label>
-          Макс. токенов в ответе
+          Макс. токенов в ответе (зависит от модели)
           <input
             type="number"
             min={256}
@@ -57,6 +57,9 @@ export function SettingsPanel({ value, onChange, onClose }: Props) {
               })
             }
           />
+          <small className="settings-hint">
+            До 120 000. Некоторые модели или API могут поддерживать меньший предел.
+          </small>
         </label>
       </div>
     </div>

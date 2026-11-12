@@ -23,17 +23,22 @@ export async function readChatStream(
     }
   };
 
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) {
-      buffer += decoder.decode();
-      if (buffer) processLine(buffer);
-      return hasContent;
-    }
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) {
+        buffer += decoder.decode();
+        if (buffer) processLine(buffer);
+        return hasContent;
+      }
 
-    buffer += decoder.decode(value, { stream: true });
-    const lines = buffer.split("\n");
-    buffer = lines.pop() ?? "";
-    lines.forEach(processLine);
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
+      lines.forEach(processLine);
+    }
+  } catch (error) {
+    await reader.cancel(error).catch(() => {});
+    throw error;
   }
 }

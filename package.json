@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "tsx --test lib/keyManager.test.ts lib/buildUrl.test.ts lib/chatStream.test.ts lib/attachments.test.ts"
+    "test": "tsx --test lib/keyManager.test.ts lib/buildUrl.test.ts lib/chatStream.test.ts lib/attachments.test.ts lib/settings.test.ts lib/chatRequest.test.ts lib/backgroundJobs.test.ts"
   },
   "dependencies": {
     "fflate": "0.8.3",
