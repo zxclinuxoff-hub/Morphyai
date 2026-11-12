@@ -4,10 +4,12 @@ export interface Settings {
   maxTokens: number;
 }
 
+export const MAX_OUTPUT_TOKENS = 16384;
+
 export const DEFAULT_SETTINGS: Settings = {
   systemPrompt: "",
   temperature: 0.7,
-  maxTokens: 2048,
+  maxTokens: 4096,
 };
 
 const KEY = "coarena.settings";
@@ -20,7 +22,7 @@ export function normalizeSettings(s: Partial<Settings>): Settings {
   return {
     systemPrompt: typeof s.systemPrompt === "string" ? s.systemPrompt.slice(0, 8000) : "",
     temperature: clamp(Number(s.temperature), 0, 2, DEFAULT_SETTINGS.temperature),
-    maxTokens: clamp(Math.round(Number(s.maxTokens)), 256, 8192, DEFAULT_SETTINGS.maxTokens),
+    maxTokens: clamp(Math.round(Number(s.maxTokens)), 256, MAX_OUTPUT_TOKENS, DEFAULT_SETTINGS.maxTokens),
   };
 }
 

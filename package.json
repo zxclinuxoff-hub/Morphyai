@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "test": "tsx --test lib/keyManager.test.ts lib/buildUrl.test.ts"
+    "test": "tsx --test lib/keyManager.test.ts lib/buildUrl.test.ts lib/chatStream.test.ts"
   },
   "dependencies": {
     "highlight.js": "11.10.0",

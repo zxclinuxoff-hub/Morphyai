@@ -1,6 +1,6 @@
 "use client";
 
-import type { Settings } from "@/lib/settings";
+import { MAX_OUTPUT_TOKENS, type Settings } from "@/lib/settings";
 
 interface Props {
   value: Settings;
@@ -44,11 +44,17 @@ export function SettingsPanel({ value, onChange, onClose }: Props) {
           <input
             type="number"
             min={256}
-            max={8192}
-            step={256}
+            max={MAX_OUTPUT_TOKENS}
+            step={512}
             value={value.maxTokens}
             onChange={(e) =>
-              onChange({ ...value, maxTokens: Math.min(8192, Math.max(256, Math.round(Number(e.target.value) || 2048))) })
+              onChange({
+                ...value,
+                maxTokens: Math.min(
+                  MAX_OUTPUT_TOKENS,
+                  Math.max(256, Math.round(Number(e.target.value) || 4096)),
+                ),
+              })
             }
           />
         </label>

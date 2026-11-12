@@ -2,6 +2,7 @@ import { getPool } from "@/lib/pool";
 import { openaiRequest, ChatMessage, ContentPart } from "@/lib/providers/openai";
 import { AllKeysUnavailableError } from "@/lib/keyManager";
 import { rateLimit, clientIp } from "@/lib/rateLimit";
+import { MAX_OUTPUT_TOKENS } from "@/lib/settings";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -70,7 +71,7 @@ function parseBody(raw: unknown): ChatBody | null {
 
   const temperature = typeof b.temperature === "number" ? Math.min(Math.max(b.temperature, 0), 2) : undefined;
   const max_tokens =
-    typeof b.max_tokens === "number" ? Math.min(Math.max(Math.floor(b.max_tokens), 1), 8192) : undefined;
+    typeof b.max_tokens === "number" ? Math.min(Math.max(Math.floor(b.max_tokens), 1), MAX_OUTPUT_TOKENS) : undefined;
 
   return { model: b.model, messages, temperature, max_tokens };
 }

@@ -11,6 +11,7 @@ import type { ChatMessage } from "@/lib/providers/openai";
 import { Markdown } from "@/components/chat/Markdown";
 import { Sidebar } from "@/components/chat/Sidebar";
 import { SettingsPanel } from "@/components/chat/SettingsPanel";
+import { readChatStream } from "@/lib/chatStream";
 
 const MODEL_KEY = "coarena.model";
 const COMPARE_KEY = "coarena.compareModel";
@@ -222,35 +223,13 @@ export default function Home() {
         return;
       }
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
       let acc = "";
+      const hasContent = await readChatStream(res.body, (delta) => {
+        acc += delta;
+        setBotMessage(chatId, botId, acc);
+      });
 
-      while (true) {
-        const { value, done } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
-        buffer = lines.pop() ?? "";
-
-        for (const line of lines) {
-          if (!line.startsWith("data:")) continue;
-          const payload = line.slice(5).trim();
-          if (!payload || payload === "[DONE]") continue;
-          try {
-            const delta = JSON.parse(payload)?.choices?.[0]?.delta?.content;
-            if (typeof delta === "string") {
-              acc += delta;
-              setBotMessage(chatId, botId, acc);
-            }
-          } catch {
-            // строки, которые не разобрались как JSON, пропускаем
-          }
-        }
-      }
-
-      if (!acc) setBotMessage(chatId, botId, "Пустой ответ модели", true);
+      if (!hasContent) setBotMessage(chatId, botId, "Пустой ответ модели", true);
     } catch (err) {
       if ((err as Error).name === "AbortError") {
         setStatus("Остановлено");
