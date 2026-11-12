@@ -626,8 +626,8 @@ export default function Home() {
                         <button type="button" className={m.feedback === "down" ? "on" : ""} onClick={() => rate(m.id, "down")}>👎</button>
                       </>
                     )}
-                    {files.length >= 2 && (
-                      <button type="button" onClick={() => downloadZip(m)}>ZIP ({files.length})</button>
+                    {files.length > 0 && (
+                      <button type="button" onClick={() => downloadZip(m)}>Скачать ZIP ({files.length})</button>
                     )}
                     {lastTurn && idx === lastIdx && (
                       <button type="button" onClick={regenerate}>Повторить</button>
@@ -672,13 +672,14 @@ export default function Home() {
             type="file"
             multiple
             hidden
-            accept=".txt,.md,.csv,.tsv,.json,.js,.jsx,.ts,.tsx,.py,.html,.css,.xml,.yml,.yaml,.sql,.sh,.java,.go,.rs,.c,.cpp,.h,.cs,.php,.rb,.swift,.kt,.log,.pdf,.png,.jpg,.jpeg,.webp,.gif"
+            accept=".txt,.md,.csv,.tsv,.json,.js,.jsx,.ts,.tsx,.py,.html,.css,.xml,.yml,.yaml,.sql,.sh,.java,.go,.rs,.c,.cpp,.h,.cs,.php,.rb,.swift,.kt,.log,.pdf,.png,.jpg,.jpeg,.webp,.gif,.zip,application/zip,application/x-zip-compressed"
             onChange={(e) => void onPickFiles(e.target.files)}
           />
           <button
             type="button"
             className="attach-btn"
-            aria-label="Прикрепить файл"
+            aria-label="Прикрепить файл или ZIP-архив"
+            title="Прикрепить файл или ZIP-архив"
             disabled={busy || !ready}
             onClick={() => fileRef.current?.click()}
           >
